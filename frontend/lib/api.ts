@@ -8,6 +8,7 @@ export type SortType = "views" | "daily_views" | "likes" | "latest";
 export type Period = "daily" | "weekly" | "monthly" | "alltime";
 
 export interface Song {
+  id: number;
   video_id: string;
   title: string;
   channel_id: string;
@@ -21,6 +22,7 @@ export interface Song {
   duration: number;
   song_type: SongType;
   is_short: boolean;
+  is_collab: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -69,6 +71,7 @@ export interface MemberStats {
   total_views: number;
   cover_count: number;
   original_count: number;
+  collab_count: number;
   top3_songs: Song[];
 }
 

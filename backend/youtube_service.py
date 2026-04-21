@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from constants import (
     CHANNEL_META, API_CALL_DELAY_SECONDS,
     VIEW_HISTORY_RETENTION_DAYS,
-    PLAYLIST_IDS,
+    PLAYLIST_IDS, MIN_DURATION_SECONDS, MAX_DURATION_SECONDS,
 )
 from filter_service import classify_song_type, parse_duration
 from models import Channel, Song, ViewHistory, Generation, SongType
@@ -24,7 +24,6 @@ CHANNEL_ID_TO_MEMBER: dict[str, str] = {
     if m["channel_id"]
 }
 
-# 풀네임 → 단축명 매핑 (오탐 방지)
 FULL_NAME_TO_MEMBER: dict[str, str] = {
     "아야츠노 유니": "유니",
     "Ayatsuno Yuni": "유니",
@@ -57,7 +56,6 @@ def get_youtube_client():
 
 
 def extract_collab_members(title: str, description: str) -> list[str]:
-    """풀네임 기반으로 참여 멤버 추출 — 오탐 방지"""
     text  = title + " " + description
     found = set()
     for full_name, short_name in FULL_NAME_TO_MEMBER.items():
@@ -192,6 +190,11 @@ async def fetch_playlist_videos(youtube, db: Session, playlist_info: dict) -> in
         desc     = snippet.get("description", "")
         ch_id    = snippet.get("channelId", "")
 
+        # duration 체크 (1분 미만, 15분 이상 제외)
+        duration_sec = parse_duration(content.get("duration", "PT0S"))
+        if duration_sec < MIN_DURATION_SECONDS or duration_sec > MAX_DURATION_SECONDS:
+            continue
+
         # song_type 결정
         if forced_type:
             song_type = SongType(forced_type)
@@ -199,13 +202,10 @@ async def fetch_playlist_videos(youtube, db: Session, playlist_info: dict) -> in
             song_type = classify_song_type(title)
 
         if member_name is not None:
-            # 멤버 개인 플레이리스트 → 해당 멤버 고정
-            resolved_member  = member_name
-            is_collab        = False
-            members_to_save  = [resolved_member]
-
+            resolved_member = member_name
+            is_collab       = False
+            members_to_save = [resolved_member]
         else:
-            # 공식 플레이리스트 → channelId로 멤버 매핑
             resolved_member = CHANNEL_ID_TO_MEMBER.get(ch_id)
             if not resolved_member:
                 channel = db.query(Channel).filter_by(channel_id=ch_id).first()
@@ -214,9 +214,7 @@ async def fetch_playlist_videos(youtube, db: Session, playlist_info: dict) -> in
                 logger.debug(f"멤버 특정 불가 스킵: {vid_id}")
                 continue
 
-            # 단체곡 여부 — 풀네임으로 참여 멤버 파싱
             collab_members = extract_collab_members(title, desc)
-
             if len(collab_members) > 1:
                 is_collab       = True
                 members_to_save = collab_members
@@ -224,16 +222,13 @@ async def fetch_playlist_videos(youtube, db: Session, playlist_info: dict) -> in
                 is_collab       = False
                 members_to_save = [resolved_member]
 
-        # 멤버별로 저장
         for m_name in members_to_save:
-            # 중복 체크
             existing = db.query(Song).filter_by(
                 video_id=vid_id, member_name=m_name
             ).first()
             if existing:
                 continue
 
-            # channel_id 검증
             ch = db.query(Channel).filter_by(channel_id=ch_id).first()
             if not ch:
                 ch = db.query(Channel).filter_by(member_name=m_name).first()
@@ -253,7 +248,7 @@ async def fetch_playlist_videos(youtube, db: Session, playlist_info: dict) -> in
                 view_count    = int(stats.get("viewCount", 0)),
                 like_count    = int(stats.get("likeCount", 0)),
                 comment_count = int(stats.get("commentCount", 0)),
-                duration      = parse_duration(content.get("duration", "PT0S")),
+                duration      = duration_sec,
                 category_id   = snippet.get("categoryId"),
                 description   = desc,
                 song_type     = song_type,
@@ -296,9 +291,9 @@ async def get_video_details(youtube, video_ids: list[str]) -> list[dict]:
 
 
 async def update_view_counts(db: Session) -> None:
-    youtube        = get_youtube_client()
-    all_songs      = db.query(Song).all()
-    unique_vids    = list({s.video_id for s in all_songs})
+    youtube     = get_youtube_client()
+    all_songs   = db.query(Song).all()
+    unique_vids = list({s.video_id for s in all_songs})
 
     if not unique_vids:
         return

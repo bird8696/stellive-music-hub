@@ -1,7 +1,6 @@
 // app/songs/[id]/page.tsx
 import { getSongDetail } from "@/lib/api";
 import { isMemberName, MEMBER_BTN_COLORS } from "@/lib/memberColors";
-import MemberBadge from "@/components/MemberBadge";
 import MemberButton from "@/components/MemberButton";
 import ViewChart from "@/components/ViewChart";
 import SongCard from "@/components/SongCard";
@@ -31,6 +30,27 @@ function formatDuration(sec: number): string {
   if (h > 0)
     return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function MemberTag({ member }: { member: string }) {
+  const colors = isMemberName(member) ? MEMBER_BTN_COLORS[member] : null;
+  const [bg, fg] = colors ?? ["#1A1530", "#9B5DFF"];
+
+  return (
+    <span
+      style={{
+        color: fg,
+        backgroundColor: bg,
+        border: `1px solid ${fg}66`,
+        padding: "2px 10px",
+        borderRadius: "999px",
+        fontSize: "12px",
+        fontWeight: 700,
+      }}
+    >
+      {member}
+    </span>
+  );
 }
 
 export default async function SongPage({ params }: Props) {
@@ -65,9 +85,9 @@ export default async function SongPage({ params }: Props) {
 
         {/* 영상 정보 */}
         <div className="flex flex-col gap-4">
-          {/* 멤버 배지 + 타입 */}
-          <div className="flex items-center gap-2">
-            <MemberBadge member={song.member_name} />
+          {/* 멤버 태그 + 타입 */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <MemberTag member={song.member_name} />
             <span
               className={`text-xs px-2 py-0.5 rounded font-semibold
               ${
@@ -84,6 +104,11 @@ export default async function SongPage({ params }: Props) {
                   ? "오리지널"
                   : "미분류"}
             </span>
+            {song.is_collab && (
+              <span className="text-xs px-2 py-0.5 rounded font-semibold bg-accent/20 text-accent">
+                단체곡
+              </span>
+            )}
           </div>
 
           {/* 제목 */}
