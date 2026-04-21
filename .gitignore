@@ -4,6 +4,7 @@ cat > .gitignore << 'EOF'
 backend/__pycache__/
 backend/*.pyc
 backend/.env
+backend/.env.example
 backend/stellive_music.db
 backend/*.db
 
