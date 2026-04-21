@@ -3,7 +3,7 @@
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Integer, BigInteger, DateTime,
-    ForeignKey, Enum, Boolean, Text
+    ForeignKey, Enum, Boolean, Text, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 import enum
@@ -38,47 +38,43 @@ class Channel(Base):
 
     songs = relationship("Song", back_populates="channel", cascade="all, delete-orphan")
 
-    def __repr__(self):
-        return f"<Channel {self.member_name}({self.handle})>"
-
 
 class Song(Base):
     __tablename__ = "songs"
+    __table_args__ = (
+        UniqueConstraint("video_id", "member_name", name="uq_video_member"),
+    )
 
-    video_id      = Column(String(20),  primary_key=True, index=True)
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    video_id      = Column(String(20), nullable=False, index=True)
     title         = Column(String(300), nullable=False)
-    channel_id    = Column(String(50),  ForeignKey("channels.channel_id"), nullable=False)
+    channel_id    = Column(String(50), ForeignKey("channels.channel_id"), nullable=False)
     channel_name  = Column(String(100), nullable=False)
-    member_name   = Column(String(20),  nullable=False, index=True)
+    member_name   = Column(String(20), nullable=False, index=True)
     thumbnail_url = Column(String(500))
     published_at  = Column(DateTime, nullable=False, index=True)
     view_count    = Column(BigInteger, default=0, index=True)
     like_count    = Column(BigInteger, default=0)
     comment_count = Column(BigInteger, default=0)
-    duration      = Column(Integer,  default=0)
+    duration      = Column(Integer, default=0)
     category_id   = Column(String(10))
     description   = Column(Text)
     song_type     = Column(Enum(SongType), default=SongType.unknown, index=True)
     is_short      = Column(Boolean, default=False)
+    is_collab     = Column(Boolean, default=False)  # 단체곡 여부
     created_at    = Column(DateTime, default=datetime.utcnow)
     updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     channel      = relationship("Channel", back_populates="songs")
     view_history = relationship("ViewHistory", back_populates="song", cascade="all, delete-orphan")
 
-    def __repr__(self):
-        return f"<Song {self.video_id}: {self.title[:30]}>"
-
 
 class ViewHistory(Base):
     __tablename__ = "view_history"
 
     id          = Column(Integer, primary_key=True, autoincrement=True)
-    video_id    = Column(String(20), ForeignKey("songs.video_id"), nullable=False, index=True)
+    song_id     = Column(Integer, ForeignKey("songs.id"), nullable=False, index=True)
     recorded_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     view_count  = Column(BigInteger, nullable=False)
 
     song = relationship("Song", back_populates="view_history")
-
-    def __repr__(self):
-        return f"<ViewHistory {self.video_id} @ {self.recorded_at}: {self.view_count:,}>"

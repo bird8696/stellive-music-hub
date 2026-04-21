@@ -18,11 +18,34 @@ from models import Channel, Song, ViewHistory, Generation, SongType
 
 logger = logging.getLogger("stellive.youtube")
 
-# 채널 ID → 멤버 단축명 빠른 조회용 (하드코딩된 것만)
 CHANNEL_ID_TO_MEMBER: dict[str, str] = {
     m["channel_id"]: m["member_name"]
     for m in CHANNEL_META
     if m["channel_id"]
+}
+
+# 풀네임 → 단축명 매핑 (오탐 방지)
+FULL_NAME_TO_MEMBER: dict[str, str] = {
+    "아야츠노 유니": "유니",
+    "Ayatsuno Yuni": "유니",
+    "사키하네 후야": "후야",
+    "Sakihane Huya": "후야",
+    "시라유키 히나": "히나",
+    "Shirayuki Hina": "히나",
+    "네네코 마시로": "마시로",
+    "Neneko Mashiro": "마시로",
+    "아카네 리제":   "리제",
+    "Akane Lize":    "리제",
+    "아라하시 타비": "타비",
+    "Arahashi Tabi": "타비",
+    "텐코 시부키":   "시부키",
+    "Tenko Shibuki": "시부키",
+    "아오쿠모 린":   "린",
+    "Aokumo Rin":    "린",
+    "하나코 나나":   "나나",
+    "Hanako Nana":   "나나",
+    "유즈하 리코":   "리코",
+    "Yuzuha Riko":   "리코",
 }
 
 
@@ -33,7 +56,15 @@ def get_youtube_client():
     return build("youtube", "v3", developerKey=api_key)
 
 
-# ── 채널 초기화 ───────────────────────────────────
+def extract_collab_members(title: str, description: str) -> list[str]:
+    """풀네임 기반으로 참여 멤버 추출 — 오탐 방지"""
+    text  = title + " " + description
+    found = set()
+    for full_name, short_name in FULL_NAME_TO_MEMBER.items():
+        if full_name in text:
+            found.add(short_name)
+    return list(found)
+
 
 async def init_channels(db: Session) -> None:
     youtube = get_youtube_client()
@@ -44,10 +75,6 @@ async def init_channels(db: Session) -> None:
 
         existing = db.query(Channel).filter_by(handle=handle).first()
         if existing:
-            # 채널 ID가 DB에 없으면 업데이트
-            if existing.channel_id != channel_id and channel_id:
-                existing.channel_id = channel_id
-                db.commit()
             logger.info(f"스킵 (이미 존재): {handle}")
             continue
 
@@ -56,7 +83,6 @@ async def init_channels(db: Session) -> None:
             if not channel_id:
                 logger.warning(f"채널 ID 조회 실패: {handle}")
                 continue
-            # 조회된 채널 ID를 전역 맵에도 추가
             CHANNEL_ID_TO_MEMBER[channel_id] = meta["member_name"]
             await asyncio.sleep(API_CALL_DELAY_SECONDS)
 
@@ -73,7 +99,6 @@ async def init_channels(db: Session) -> None:
 
     db.commit()
 
-    # DB에 저장된 모든 채널 ID를 전역 맵에 추가
     all_channels = db.query(Channel).all()
     for ch in all_channels:
         CHANNEL_ID_TO_MEMBER[ch.channel_id] = ch.member_name
@@ -98,21 +123,11 @@ async def resolve_channel_id(youtube, handle: str) -> str | None:
         return None
 
 
-# ── 플레이리스트 기반 수집 ────────────────────────
-
 async def fetch_all_videos(db: Session) -> None:
-    """초기 실행 — 멤버 플레이리스트 먼저, 공식 플레이리스트 나중에"""
     youtube = get_youtube_client()
 
-    # 멤버 개인 플레이리스트 먼저 수집
-    member_playlists   = [p for p in PLAYLIST_IDS if p["member_name"] is not None]
     official_playlists = [p for p in PLAYLIST_IDS if p["member_name"] is None]
-
-    logger.info("📥 멤버 개인 플레이리스트 수집 시작")
-    for pl in member_playlists:
-        count = await fetch_playlist_videos(youtube, db, pl)
-        logger.info(f"  → {pl['member_name']} {count}개 저장")
-        await asyncio.sleep(API_CALL_DELAY_SECONDS)
+    member_playlists   = [p for p in PLAYLIST_IDS if p["member_name"] is not None]
 
     logger.info("📥 공식 플레이리스트 수집 시작")
     for pl in official_playlists:
@@ -120,9 +135,14 @@ async def fetch_all_videos(db: Session) -> None:
         logger.info(f"  → 공식({pl['song_type']}) {count}개 저장")
         await asyncio.sleep(API_CALL_DELAY_SECONDS)
 
+    logger.info("📥 멤버 플레이리스트 수집 시작")
+    for pl in member_playlists:
+        count = await fetch_playlist_videos(youtube, db, pl)
+        logger.info(f"  → {pl['member_name']}({pl['song_type'] or '자동'}) {count}개 저장")
+        await asyncio.sleep(API_CALL_DELAY_SECONDS)
+
 
 async def fetch_playlist_videos(youtube, db: Session, playlist_info: dict) -> int:
-    """플레이리스트 ID로 영상 수집. 중복 제거."""
     playlist_id = playlist_info["playlist_id"]
     member_name = playlist_info["member_name"]
     forced_type = playlist_info["song_type"]
@@ -131,7 +151,6 @@ async def fetch_playlist_videos(youtube, db: Session, playlist_info: dict) -> in
     page_token = None
     video_ids  = []
 
-    # 1단계: playlistItems로 video_id 수집
     while True:
         try:
             params = dict(
@@ -162,18 +181,7 @@ async def fetch_playlist_videos(youtube, db: Session, playlist_info: dict) -> in
     if not video_ids:
         return 0
 
-    # 중복 제거
-    existing_ids = {
-        row[0] for row in db.query(Song.video_id)
-        .filter(Song.video_id.in_(video_ids)).all()
-    }
-    new_ids = [vid for vid in video_ids if vid not in existing_ids]
-
-    if not new_ids:
-        return 0
-
-    # 2단계: videos.list로 상세 정보 조회
-    details = await get_video_details(youtube, new_ids)
+    details = await get_video_details(youtube, video_ids)
 
     for video in details:
         vid_id   = video["id"]
@@ -184,66 +192,92 @@ async def fetch_playlist_videos(youtube, db: Session, playlist_info: dict) -> in
         desc     = snippet.get("description", "")
         ch_id    = snippet.get("channelId", "")
 
-        # member_name 결정: 플레이리스트 지정 → 채널 ID 맵 → DB 조회 순서
-        if member_name:
-            resolved_member = member_name
+        # song_type 결정
+        if forced_type:
+            song_type = SongType(forced_type)
         else:
+            song_type = classify_song_type(title)
+
+        if member_name is not None:
+            # 멤버 개인 플레이리스트 → 해당 멤버 고정
+            resolved_member  = member_name
+            is_collab        = False
+            members_to_save  = [resolved_member]
+
+        else:
+            # 공식 플레이리스트 → channelId로 멤버 매핑
             resolved_member = CHANNEL_ID_TO_MEMBER.get(ch_id)
             if not resolved_member:
                 channel = db.query(Channel).filter_by(channel_id=ch_id).first()
                 resolved_member = channel.member_name if channel else None
             if not resolved_member:
-                # 멤버 특정 불가 → 스킵
-                logger.debug(f"멤버 특정 불가 스킵: {vid_id} (channel: {ch_id})")
+                logger.debug(f"멤버 특정 불가 스킵: {vid_id}")
                 continue
 
-        # song_type 결정
-        if forced_type:
-            song_type = SongType(forced_type)
-        else:
-            song_type = classify_song_type(title, desc)
+            # 단체곡 여부 — 풀네임으로 참여 멤버 파싱
+            collab_members = extract_collab_members(title, desc)
 
-        song = Song(
-            video_id      = vid_id,
-            title         = title,
-            channel_id    = ch_id,
-            channel_name  = snippet.get("channelTitle", resolved_member),
-            member_name   = resolved_member,
-            thumbnail_url = snippet.get("thumbnails", {}).get("high", {}).get("url"),
-            published_at  = datetime.fromisoformat(
-                snippet["publishedAt"].replace("Z", "+00:00")
-            ),
-            view_count    = int(stats.get("viewCount", 0)),
-            like_count    = int(stats.get("likeCount", 0)),
-            comment_count = int(stats.get("commentCount", 0)),
-            duration      = parse_duration(content.get("duration", "PT0S")),
-            category_id   = snippet.get("categoryId"),
-            description   = desc,
-            song_type     = song_type,
-        )
-        db.add(song)
-        saved += 1
+            if len(collab_members) > 1:
+                is_collab       = True
+                members_to_save = collab_members
+            else:
+                is_collab       = False
+                members_to_save = [resolved_member]
+
+        # 멤버별로 저장
+        for m_name in members_to_save:
+            # 중복 체크
+            existing = db.query(Song).filter_by(
+                video_id=vid_id, member_name=m_name
+            ).first()
+            if existing:
+                continue
+
+            # channel_id 검증
+            ch = db.query(Channel).filter_by(channel_id=ch_id).first()
+            if not ch:
+                ch = db.query(Channel).filter_by(member_name=m_name).first()
+            if not ch:
+                continue
+
+            song = Song(
+                video_id      = vid_id,
+                title         = title,
+                channel_id    = ch.channel_id,
+                channel_name  = snippet.get("channelTitle", m_name),
+                member_name   = m_name,
+                thumbnail_url = snippet.get("thumbnails", {}).get("high", {}).get("url"),
+                published_at  = datetime.fromisoformat(
+                    snippet["publishedAt"].replace("Z", "+00:00")
+                ),
+                view_count    = int(stats.get("viewCount", 0)),
+                like_count    = int(stats.get("likeCount", 0)),
+                comment_count = int(stats.get("commentCount", 0)),
+                duration      = parse_duration(content.get("duration", "PT0S")),
+                category_id   = snippet.get("categoryId"),
+                description   = desc,
+                song_type     = song_type,
+                is_collab     = is_collab,
+            )
+            db.add(song)
+            saved += 1
 
     db.commit()
     return saved
 
 
-# ── 신규 영상 수집 ────────────────────────────────
-
 async def fetch_new_videos(db: Session) -> None:
     youtube = get_youtube_client()
 
-    member_playlists   = [p for p in PLAYLIST_IDS if p["member_name"] is not None]
     official_playlists = [p for p in PLAYLIST_IDS if p["member_name"] is None]
+    member_playlists   = [p for p in PLAYLIST_IDS if p["member_name"] is not None]
 
-    for pl in member_playlists + official_playlists:
+    for pl in official_playlists + member_playlists:
         count = await fetch_playlist_videos(youtube, db, pl)
         if count:
             logger.info(f"신규 {count}개 저장: {pl['member_name'] or '공식'}")
         await asyncio.sleep(API_CALL_DELAY_SECONDS)
 
-
-# ── 영상 상세 조회 ────────────────────────────────
 
 async def get_video_details(youtube, video_ids: list[str]) -> list[dict]:
     results = []
@@ -261,36 +295,33 @@ async def get_video_details(youtube, video_ids: list[str]) -> list[dict]:
     return results
 
 
-# ── 조회수 갱신 ───────────────────────────────────
-
 async def update_view_counts(db: Session) -> None:
-    youtube   = get_youtube_client()
-    all_songs = db.query(Song).all()
-    video_ids = [s.video_id for s in all_songs]
+    youtube        = get_youtube_client()
+    all_songs      = db.query(Song).all()
+    unique_vids    = list({s.video_id for s in all_songs})
 
-    if not video_ids:
+    if not unique_vids:
         return
 
-    details = await get_video_details(youtube, video_ids)
+    details = await get_video_details(youtube, unique_vids)
     now     = datetime.utcnow()
 
     for video in details:
-        vid_id = video["id"]
-        stats  = video.get("statistics", {})
-        song   = db.query(Song).filter_by(video_id=vid_id).first()
-        if not song:
-            continue
+        vid_id    = video["id"]
+        stats     = video.get("statistics", {})
+        new_views = int(stats.get("viewCount", 0))
 
-        new_views          = int(stats.get("viewCount", 0))
-        song.view_count    = new_views
-        song.like_count    = int(stats.get("likeCount", 0))
-        song.comment_count = int(stats.get("commentCount", 0))
+        songs = db.query(Song).filter_by(video_id=vid_id).all()
+        for song in songs:
+            song.view_count    = new_views
+            song.like_count    = int(stats.get("likeCount", 0))
+            song.comment_count = int(stats.get("commentCount", 0))
 
-        db.add(ViewHistory(
-            video_id    = vid_id,
-            recorded_at = now,
-            view_count  = new_views,
-        ))
+            db.add(ViewHistory(
+                song_id     = song.id,
+                recorded_at = now,
+                view_count  = new_views,
+            ))
 
     db.commit()
     await cleanup_old_history(db)

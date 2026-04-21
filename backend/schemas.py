@@ -6,8 +6,6 @@ from pydantic import BaseModel
 from models import SongType, Generation
 
 
-# ── Channel ──────────────────────────────────────
-
 class ChannelResponse(BaseModel):
     channel_id:       str
     handle:           str
@@ -15,16 +13,13 @@ class ChannelResponse(BaseModel):
     member_name_full: str
     generation:       Generation
     is_active:        bool
-    created_at:       datetime
-    updated_at:       datetime
 
     class Config:
         from_attributes = True
 
 
-# ── Song ─────────────────────────────────────────
-
 class SongResponse(BaseModel):
+    id:            int
     video_id:      str
     title:         str
     channel_id:    str
@@ -39,6 +34,7 @@ class SongResponse(BaseModel):
     category_id:   Optional[str] = None
     song_type:     SongType
     is_short:      bool
+    is_collab:     bool
     created_at:    datetime
     updated_at:    datetime
 
@@ -54,8 +50,6 @@ class SongListResponse(BaseModel):
     has_next: bool
 
 
-# ── Ranking ──────────────────────────────────────
-
 class RankingItem(BaseModel):
     rank:        int
     prev_rank:   Optional[int] = None
@@ -63,6 +57,7 @@ class RankingItem(BaseModel):
     is_new:      bool = False
     daily_views: int  = 0
 
+    id:            int
     video_id:      str
     title:         str
     member_name:   str
@@ -71,20 +66,19 @@ class RankingItem(BaseModel):
     view_count:    int
     like_count:    int
     song_type:     SongType
+    is_collab:     bool
 
     class Config:
         from_attributes = True
 
 
 class RankingResponse(BaseModel):
-    period:    str
-    song_type: str
-    member:    Optional[str] = None
-    items:     list[RankingItem]
+    period:     str
+    song_type:  str
+    member:     Optional[str] = None
+    items:      list[RankingItem]
     updated_at: datetime
 
-
-# ── ViewHistory ───────────────────────────────────
 
 class ViewHistoryPoint(BaseModel):
     recorded_at: datetime
@@ -99,8 +93,6 @@ class SongDetailResponse(SongResponse):
     related_songs: list[SongResponse]    = []
 
 
-# ── Member ────────────────────────────────────────
-
 class MemberStats(BaseModel):
     member_name:      str
     member_name_full: str
@@ -111,14 +103,13 @@ class MemberStats(BaseModel):
     total_views:      int
     cover_count:      int
     original_count:   int
+    collab_count:     int = 0
     top3_songs:       list[SongResponse] = []
 
 
 class MemberListResponse(BaseModel):
     members: list[MemberStats]
 
-
-# ── Stats ─────────────────────────────────────────
 
 class GlobalStats(BaseModel):
     total_songs:    int
@@ -128,8 +119,6 @@ class GlobalStats(BaseModel):
     today_uploads:  int
     last_updated:   datetime
 
-
-# ── Admin ─────────────────────────────────────────
 
 class RefreshResponse(BaseModel):
     status:       str

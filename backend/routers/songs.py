@@ -42,16 +42,16 @@ async def get_songs(
         since = datetime.utcnow() - timedelta(hours=24)
         subq = (
             db.query(
-                ViewHistory.video_id,
+                ViewHistory.song_id,
                 (func.max(ViewHistory.view_count) - func.min(ViewHistory.view_count))
                 .label("daily_gain"),
             )
             .filter(ViewHistory.recorded_at >= since)
-            .group_by(ViewHistory.video_id)
+            .group_by(ViewHistory.song_id)
             .subquery()
         )
         query = (
-            query.outerjoin(subq, Song.video_id == subq.c.video_id)
+            query.outerjoin(subq, Song.id == subq.c.song_id)
             .order_by(desc(subq.c.daily_gain))
         )
 
@@ -67,20 +67,25 @@ async def get_songs(
     has_next = (offset + limit) < total
 
     return SongListResponse(
-        items=items,
-        total=total,
-        page=page,
-        limit=limit,
-        has_next=has_next,
+        items    = items,
+        total    = total,
+        page     = page,
+        limit    = limit,
+        has_next = has_next,
     )
 
 
 @router.get("/songs/{video_id}", response_model=SongDetailResponse)
 async def get_song_detail(
     video_id: str,
-    db: Session = Depends(get_db),
+    member:   Optional[str] = None,
+    db:       Session = Depends(get_db),
 ):
-    song = db.query(Song).filter_by(video_id=video_id).first()
+    query = db.query(Song).filter_by(video_id=video_id)
+    if member:
+        query = query.filter_by(member_name=member)
+    song = query.first()
+
     if not song:
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
 
@@ -88,7 +93,7 @@ async def get_song_detail(
     history = (
         db.query(ViewHistory)
         .filter(
-            ViewHistory.video_id == video_id,
+            ViewHistory.song_id == song.id,
             ViewHistory.recorded_at >= since,
         )
         .order_by(ViewHistory.recorded_at)
@@ -97,7 +102,10 @@ async def get_song_detail(
 
     related = (
         db.query(Song)
-        .filter(Song.member_name == song.member_name, Song.video_id != video_id)
+        .filter(
+            Song.member_name == song.member_name,
+            Song.video_id != video_id,
+        )
         .order_by(desc(Song.view_count))
         .limit(6)
         .all()
@@ -105,8 +113,8 @@ async def get_song_detail(
 
     return SongDetailResponse(
         **SongResponse.model_validate(song).model_dump(),
-        view_history=history,
-        related_songs=related,
+        view_history  = history,
+        related_songs = related,
     )
 
 
@@ -114,9 +122,15 @@ async def get_song_detail(
 async def get_song_history(
     video_id: str,
     period:   Literal["7d", "30d"] = "7d",
+    member:   Optional[str] = None,
     db:       Session = Depends(get_db),
 ):
-    if not db.query(Song).filter_by(video_id=video_id).first():
+    query = db.query(Song).filter_by(video_id=video_id)
+    if member:
+        query = query.filter_by(member_name=member)
+    song = query.first()
+
+    if not song:
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
 
     days  = 7 if period == "7d" else 30
@@ -125,7 +139,7 @@ async def get_song_history(
     history = (
         db.query(ViewHistory)
         .filter(
-            ViewHistory.video_id == video_id,
+            ViewHistory.song_id == song.id,
             ViewHistory.recorded_at >= since,
         )
         .order_by(ViewHistory.recorded_at)

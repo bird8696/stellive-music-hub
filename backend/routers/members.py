@@ -13,17 +13,17 @@ router = APIRouter(tags=["members"])
 
 
 def build_member_stats(db: Session, channel: Channel) -> MemberStats:
-    """Channel 객체 → MemberStats 생성"""
-    songs = db.query(Song).filter_by(channel_id=channel.channel_id).all()
+    songs = db.query(Song).filter_by(member_name=channel.member_name).all()
 
     total_songs    = len(songs)
     total_views    = sum(s.view_count for s in songs)
     cover_count    = sum(1 for s in songs if s.song_type == SongType.cover)
     original_count = sum(1 for s in songs if s.song_type == SongType.original)
+    collab_count   = sum(1 for s in songs if s.is_collab)
 
     top3 = (
         db.query(Song)
-        .filter_by(channel_id=channel.channel_id)
+        .filter_by(member_name=channel.member_name)
         .order_by(desc(Song.view_count))
         .limit(3)
         .all()
@@ -39,6 +39,7 @@ def build_member_stats(db: Session, channel: Channel) -> MemberStats:
         total_views      = total_views,
         cover_count      = cover_count,
         original_count   = original_count,
+        collab_count     = collab_count,
         top3_songs       = top3,
     )
 
@@ -54,7 +55,6 @@ async def get_members(db: Session = Depends(get_db)):
 
     members = [build_member_stats(db, ch) for ch in channels]
 
-    # 기수 순서 정렬
     gen_order = {"1기 EVERYS": 0, "2기 UNIVERSE": 1, "3기 cliché": 2}
     members.sort(key=lambda m: gen_order.get(m.generation, 99))
 
@@ -81,13 +81,14 @@ async def get_member(
 async def get_global_stats(db: Session = Depends(get_db)):
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    total_songs    = db.query(func.count(Song.video_id)).scalar() or 0
-    total_views    = db.query(func.sum(Song.view_count)).scalar() or 0
-    cover_count    = db.query(func.count(Song.video_id)).filter_by(song_type=SongType.cover).scalar() or 0
-    original_count = db.query(func.count(Song.video_id)).filter_by(song_type=SongType.original).scalar() or 0
-    today_uploads  = db.query(func.count(Song.video_id)).filter(Song.published_at >= today_start).scalar() or 0
+    # 중복 video_id 제거해서 실제 영상 수 계산
+    total_songs    = db.query(func.count(func.distinct(Song.video_id))).scalar() or 0
+    total_views    = db.query(func.sum(Song.view_count)).filter(Song.is_collab == False).scalar() or 0
+    cover_count    = db.query(func.count(func.distinct(Song.video_id))).filter_by(song_type=SongType.cover).scalar() or 0
+    original_count = db.query(func.count(func.distinct(Song.video_id))).filter_by(song_type=SongType.original).scalar() or 0
+    today_uploads  = db.query(func.count(func.distinct(Song.video_id))).filter(Song.published_at >= today_start).scalar() or 0
 
-    last_song = db.query(Song).order_by(desc(Song.updated_at)).first()
+    last_song    = db.query(Song).order_by(desc(Song.updated_at)).first()
     last_updated = last_song.updated_at if last_song else datetime.utcnow()
 
     return GlobalStats(
