@@ -42,43 +42,59 @@ export default function ChartPage() {
   ];
 
   return (
-    <div className="px-4 md:px-8 py-8 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6 text-textPrimary">🏆 차트</h1>
+    <div className="max-w-5xl mx-auto px-6 py-10">
+      {/* 헤더 */}
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-textPrimary mb-1">차트</h1>
+        <p className="text-textSecondary text-sm">
+          {ranking ? `총 ${ranking.items.length}곡` : ""}
+        </p>
+      </div>
 
-      {/* 타입 + 기간 필터 */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        {/* 타입 */}
-        <div className="flex gap-2">
+      {/* 필터 */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        {/* 타입 필터 */}
+        <div className="flex rounded-lg overflow-hidden border border-border">
           {types.map((t) => (
             <button
               key={t.value}
               onClick={() => setSongType(t.value)}
-              className={`px-4 py-2 rounded-full text-sm font-semibold transition
-                ${
-                  songType === t.value
-                    ? "btn-brand"
-                    : "bg-bgSurface text-textSecondary hover:text-textPrimary border border-border"
-                }`}
+              className="px-6 py-2.5 text-base font-semibold transition-all duration-200"
+              style={
+                songType === t.value
+                  ? {
+                      background: "linear-gradient(135deg, #9B5DFF, #FF6B9D)",
+                      color: "white",
+                    }
+                  : {
+                      background: "transparent",
+                      color: "#9E8EC4",
+                    }
+              }
             >
               {t.label}
             </button>
           ))}
         </div>
 
-        <div className="flex-1" />
-
-        {/* 기간 */}
+        {/* 기간 필터 */}
         <div className="flex gap-1">
           {periods.map((p) => (
             <button
               key={p.value}
               onClick={() => setPeriod(p.value)}
-              className={`px-3 py-2 rounded text-sm font-semibold transition
-                ${
-                  period === p.value
-                    ? "text-primary border-b-2 border-primary"
-                    : "text-textSecondary hover:text-textPrimary"
-                }`}
+              className="px-4 py-2.5 text-base font-semibold transition-all duration-200 pb-2"
+              style={
+                period === p.value
+                  ? {
+                      color: "#9B5DFF",
+                      borderBottom: "2px solid #9B5DFF",
+                    }
+                  : {
+                      color: "#9E8EC4",
+                      borderBottom: "2px solid transparent",
+                    }
+              }
             >
               {p.label}
             </button>
@@ -86,8 +102,8 @@ export default function ChartPage() {
         </div>
       </div>
 
-      {/* 멤버 필터 토글 */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      {/* 멤버 필터 */}
+      <div className="flex flex-wrap gap-2 mb-8">
         {MEMBER_NAMES.map((name) => (
           <MemberBadge
             key={name}
@@ -102,11 +118,11 @@ export default function ChartPage() {
       {/* 순위표 */}
       <div className="glass-card overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-textSecondary text-base">
+          <div className="p-12 text-center text-textSecondary text-base">
             로딩 중...
           </div>
         ) : !ranking || ranking.items.length === 0 ? (
-          <div className="p-8 text-center text-textSecondary text-base">
+          <div className="p-12 text-center text-textSecondary text-base">
             데이터가 없습니다.
           </div>
         ) : (

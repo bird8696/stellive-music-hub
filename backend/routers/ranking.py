@@ -22,7 +22,6 @@ def get_period_range(period: str) -> datetime | None:
 
 
 def calc_period_views(db: Session, since: datetime | None) -> dict[int, int]:
-    """song_id → 조회수 증가량"""
     if since is None:
         return {}
     rows = (
@@ -38,7 +37,6 @@ def calc_period_views(db: Session, since: datetime | None) -> dict[int, int]:
 
 
 def calc_prev_ranks(db: Session, period: str) -> dict[int, int]:
-    """이전 기간 song_id → 순위"""
     now = datetime.utcnow()
     if period == "daily":
         prev_since = now - timedelta(hours=48)
@@ -86,6 +84,16 @@ async def get_ranking(
         query = query.filter(Song.member_name == member)
 
     songs = query.all()
+
+    # 멤버 필터 없을 때 video_id 중복 제거
+    if not member:
+        seen        = set()
+        deduped     = []
+        for song in songs:
+            if song.video_id not in seen:
+                seen.add(song.video_id)
+                deduped.append(song)
+        songs = deduped
 
     if period == "alltime":
         songs.sort(key=lambda s: s.view_count, reverse=True)

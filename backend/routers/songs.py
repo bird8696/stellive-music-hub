@@ -37,7 +37,6 @@ async def get_songs(
 
     if sort == "views":
         query = query.order_by(desc(Song.view_count))
-
     elif sort == "daily_views":
         since = datetime.utcnow() - timedelta(hours=24)
         subq = (
@@ -54,17 +53,29 @@ async def get_songs(
             query.outerjoin(subq, Song.id == subq.c.song_id)
             .order_by(desc(subq.c.daily_gain))
         )
-
     elif sort == "likes":
         query = query.order_by(desc(Song.like_count))
-
     elif sort == "latest":
         query = query.order_by(desc(Song.published_at))
 
-    total    = query.count()
-    offset   = (page - 1) * limit
-    items    = query.offset(offset).limit(limit).all()
-    has_next = (offset + limit) < total
+    # 멤버 필터 없을 때 video_id 중복 제거
+    if not member:
+        all_items = query.all()
+        seen      = set()
+        deduped   = []
+        for song in all_items:
+            if song.video_id not in seen:
+                seen.add(song.video_id)
+                deduped.append(song)
+        total    = len(deduped)
+        offset   = (page - 1) * limit
+        items    = deduped[offset:offset + limit]
+        has_next = (offset + limit) < total
+    else:
+        total    = query.count()
+        offset   = (page - 1) * limit
+        items    = query.offset(offset).limit(limit).all()
+        has_next = (offset + limit) < total
 
     return SongListResponse(
         items    = items,
@@ -163,5 +174,12 @@ async def search_songs(
     if member:
         query = query.filter(Song.member_name == member)
 
-    results = query.order_by(desc(Song.view_count)).limit(50).all()
-    return results
+    all_results = query.order_by(desc(Song.view_count)).all()
+    seen        = set()
+    results     = []
+    for song in all_results:
+        if song.video_id not in seen:
+            seen.add(song.video_id)
+            results.append(song)
+
+    return results[:50]
