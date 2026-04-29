@@ -250,7 +250,7 @@ with StelLive or its management.
 ## 📝 개발 정보
 
 - **개발자**: bird8696
-- **개발 기간**: 2026년 4월
+- **개발 기간**: 2026년 4월 04일 ~ 현재 진행중
 - **GitHub**: [bird8696/stellive-music-hub](https://github.com/bird8696/stellive-music-hub)
 
 ---
